@@ -3,49 +3,63 @@ import pandas as pd
 import plotly.express as px
 
 st.title("World Time Machine: Paint the Planet with Data")
-st.write("A **choropleth map** colours whole countries by a number. Travel from 1952 to 2007 "
-         "and watch the world change. (Data: Gapminder, 142 countries, years 1952-2007.)")
+st.write("A **choropleth map** colours whole countries by a number. Travel from 1952 to 2022 "
+         "and watch the world change. Grey countries have no data.")
 
-# Step 1: load real country data (comes built into Plotly - no internet needed)
-df = px.data.gapminder()
-indicators = {"Life expectancy (years)": "lifeExp",
-              "Money per person (GDP, US dollars)": "gdpPercap",
-              "Population (people)": "pop"}
+# Step 1: load real country data (a file that comes with this app)
+df = pd.read_csv("world_data.csv")
+# what each number means, in plain words: (short phrase, label for the chart)
+plain = {
+    "Life expectancy (years)": ("the number of years a newborn baby could expect to live", "Years a newborn baby could expect to live"),
+    "Money per person (GDP, US dollars)": ("the yearly money earned by the average person (US dollars)", "Money earned per person in a year (US dollars)"),
+    "Population (people)": ("the number of people living", "Number of people living there"),
+}
+indicators = list(plain)
 
 # Step 2: the student's controls
-what = st.selectbox("What should the map show?", list(indicators))
-year = st.slider("Year", 1952, 2007, 2007, step=5)
+col = st.selectbox("What should the map show?", indicators)
+st.caption(f"This number means: {plain[col][0]}.")
+year = st.slider("Which year?", 1952, 2022, 2022)
 style = st.radio("Colour style", ["Smooth colours", "5 equal-size groups"], horizontal=True)
-col = indicators[what]
-data = df[df["year"] == year].copy()
+data = df[df["Year"] == year].copy()
 
 # Step 3: paint the map
 if style == "Smooth colours":
-    fig = px.choropleth(data, locations="iso_alpha", color=col, hover_name="country",
-                        color_continuous_scale="Viridis")
+    fig = px.choropleth(data, locations="Code", color=col, hover_name="Country", color_continuous_scale="Viridis")
 else:
     labels = ["Lowest 20%", "Low", "Middle", "High", "Highest 20%"]
-    data["group"] = pd.qcut(data[col], 5, labels=labels)
-    fig = px.choropleth(data, locations="iso_alpha", color="group", hover_name="country",
-                        category_orders={"group": labels},
-                        color_discrete_sequence=px.colors.sequential.Viridis)
+    data["Group"] = pd.qcut(data[col], 5, labels=labels)
+    fig = px.choropleth(data, locations="Code", color="Group", hover_name="Country",
+                        category_orders={"Group": labels}, color_discrete_sequence=px.colors.sequential.Viridis)
+fig.update_layout(title=f"{plain[col][1]}, in the year {year}", margin=dict(l=0, r=0, t=40, b=0))
 st.plotly_chart(fig)
 st.caption("Try Population with smooth colours, then switch to 5 groups. Which map tells the fairer story?")
 
 # Step 4: who is on top and who is at the bottom?
 top, bottom = st.columns(2)
-top.write("**Highest 5**")
-top.dataframe(data.nlargest(5, col)[["country", col]], hide_index=True)
-bottom.write("**Lowest 5**")
-bottom.dataframe(data.nsmallest(5, col)[["country", col]], hide_index=True)
+top.write(f"**Top 5 countries in {year}**")
+top.dataframe(data.nlargest(5, col)[["Country", col]], hide_index=True)
+bottom.write(f"**Bottom 5 countries in {year}**")
+bottom.dataframe(data.nsmallest(5, col)[["Country", col]], hide_index=True)
 
 # Step 5: YOUR country's story compared with the world
 st.subheader("Your country's story")
-country = st.selectbox("Pick your country (or any country you are curious about)", sorted(df["country"].unique()))
-story = pd.DataFrame({country: df[df["country"] == country].set_index("year")[col],
-                      "World median": df.groupby("year")[col].median()})
-st.line_chart(story)
-first, last = story[country].iloc[0], story[country].iloc[-1]
-st.metric(f"{country}: 1952 to 2007", f"{last:,.0f}", f"{last - first:+,.0f} since 1952")
-st.info("A map shows WHERE, a line shows WHEN. But how far apart are these countries? "
-        "Next lesson: measure real distances on our round Earth!")
+countries = sorted(df["Country"].unique())
+country = st.selectbox("Pick your country (or any country you are curious about)", countries, index=None, placeholder="Choose a country")
+if country is None:
+    st.stop()                                   # wait until the student chooses
+story = pd.DataFrame({country: df[df["Country"] == country].set_index("Year")[col],
+                      "World average": df.groupby("Year")[col].mean()}).reset_index()
+fig2 = px.line(story, x="Year", y=[country, "World average"],
+               labels={"value": plain[col][1], "variable": "", "Year": "Calendar year"},
+               title=f"{country} compared with the world average")
+fig2.update_xaxes(tickformat="d")
+st.plotly_chart(fig2)
+
+mine = story[country].dropna()
+if mine.empty:
+    st.warning(f"We have no data on {plain[col][0]} for {country}. Try another country!")
+else:
+    st.write(f"In **{int(story.loc[mine.index[0], 'Year'])}**, {plain[col][0]} in {country} was **{mine.iloc[0]:,.0f}**. "
+             f"In **{int(story.loc[mine.index[-1], 'Year'])}** it was **{mine.iloc[-1]:,.0f}**. "
+             f"That is a change of **{mine.iloc[-1] - mine.iloc[0]:+,.0f}**.")
